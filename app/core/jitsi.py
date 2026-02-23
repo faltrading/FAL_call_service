@@ -8,6 +8,16 @@ from app.core.config import settings
 JITSI_JWT_EXPIRY_SECONDS = 86400
 
 
+def _load_private_key() -> str:
+    """Return PEM-formatted RSA private key from settings."""
+    raw = settings.JITSI_APP_SECRET.strip()
+    if raw.startswith("-----"):
+        return raw
+    # Raw base64 without PEM headers – wrap it
+    lines = [raw[i : i + 64] for i in range(0, len(raw), 64)]
+    return "-----BEGIN PRIVATE KEY-----\n" + "\n".join(lines) + "\n-----END PRIVATE KEY-----"
+
+
 def generate_jitsi_jwt(
     user_id: uuid.UUID,
     username: str,
@@ -17,31 +27,40 @@ def generate_jitsi_jwt(
     now = int(time.time())
 
     payload = {
-        "iss": settings.JITSI_APP_ID,
-        "sub": settings.jitsi_domain,
+        "iss": "chat",
+        "sub": settings.JITSI_APP_ID,
         "aud": "jitsi",
-        "room": room_name,
+        "room": "*",
         "iat": now,
+        "nbf": now,
         "exp": now + JITSI_JWT_EXPIRY_SECONDS,
-        "moderator": is_moderator,
         "context": {
             "user": {
                 "id": str(user_id),
                 "name": username,
-                "moderator": is_moderator,
-                "affiliation": "owner" if is_moderator else "member",
+                "moderator": "true" if is_moderator else "false",
+                "avatar": "",
+                "email": "",
+            },
+            "features": {
+                "livestreaming": "false",
+                "recording": "false",
+                "transcription": "false",
+                "outbound-call": "false",
             },
         },
     }
 
+    kid = f"{settings.JITSI_APP_ID}/{settings.JITSI_API_KEY_ID}"
+
     return jwt.encode(
         payload,
-        settings.JITSI_APP_SECRET,
-        algorithm="HS256",
-        headers={"alg": "HS256", "typ": "JWT"},
+        _load_private_key(),
+        algorithm="RS256",
+        headers={"alg": "RS256", "typ": "JWT", "kid": kid},
     )
 
 
 def build_jitsi_room_url(room_name: str, jitsi_jwt: str) -> str:
     base = settings.JITSI_URL.rstrip("/")
-    return f"{base}/{room_name}?jwt={jitsi_jwt}"
+    return f"{base}/{settings.JITSI_APP_ID}/{room_name}?jwt={jitsi_jwt}"

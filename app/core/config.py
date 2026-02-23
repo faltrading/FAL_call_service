@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     JITSI_URL: str = ""
     JITSI_APP_ID: str = ""
     JITSI_APP_SECRET: str = ""
+    JITSI_API_KEY_ID: str = ""
 
     @property
     def async_database_url(self) -> str:

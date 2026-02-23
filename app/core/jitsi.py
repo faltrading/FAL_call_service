@@ -11,11 +11,14 @@ JITSI_JWT_EXPIRY_SECONDS = 86400
 def _load_private_key() -> str:
     """Return PEM-formatted RSA private key from settings."""
     raw = settings.JITSI_APP_SECRET.strip()
+    # Environment variables often store literal '\n' instead of real newlines
+    if "\\n" in raw:
+        raw = raw.replace("\\n", "\n")
     if raw.startswith("-----"):
         return raw
     # Raw base64 without PEM headers – wrap it
     lines = [raw[i : i + 64] for i in range(0, len(raw), 64)]
-    return "-----BEGIN PRIVATE KEY-----\n" + "\n".join(lines) + "\n-----END PRIVATE KEY-----"
+    return "-----BEGIN RSA PRIVATE KEY-----\n" + "\n".join(lines) + "\n-----END RSA PRIVATE KEY-----"
 
 
 def generate_jitsi_jwt(

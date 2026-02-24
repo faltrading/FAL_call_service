@@ -46,5 +46,11 @@ class JoinCallResponse(BaseModel):
     jitsi_room_url: str
 
 
+class CreateCallResponse(BaseModel):
+    call: CallResponse
+    jitsi_jwt: str
+    jitsi_room_url: str
+
+
 class KickRequest(BaseModel):
     reason: str | None = None

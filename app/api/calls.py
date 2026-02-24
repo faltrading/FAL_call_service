@@ -11,6 +11,7 @@ from app.schemas.calls import (
     CallListResponse,
     CallParticipantResponse,
     CallResponse,
+    CreateCallResponse,
     JoinCallResponse,
     KickRequest,
 )
@@ -35,14 +36,19 @@ async def _build_call_response(db, call) -> CallResponse:
     )
 
 
-@router.post("", response_model=CallResponse, status_code=201)
+@router.post("", response_model=CreateCallResponse, status_code=201)
 async def create_call(
     body: CallCreate,
     current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    call = await call_service.create_call(db, current_user, body.max_participants)
-    return await _build_call_response(db, call)
+    call, jitsi_jwt, jitsi_url = await call_service.create_call(db, current_user, body.max_participants)
+    call_response = await _build_call_response(db, call)
+    return CreateCallResponse(
+        call=call_response,
+        jitsi_jwt=jitsi_jwt,
+        jitsi_room_url=jitsi_url,
+    )
 
 
 @router.get("", response_model=CallListResponse)

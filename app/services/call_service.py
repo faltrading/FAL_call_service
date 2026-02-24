@@ -31,7 +31,7 @@ async def create_call(
     db: AsyncSession,
     user: CurrentUser,
     max_participants: int | None = None,
-) -> Call:
+) -> tuple[Call, str, str]:
     call = Call(
         room_name=_generate_room_name(),
         created_by=user.user_id,
@@ -50,7 +50,16 @@ async def create_call(
     db.add(participant)
     await db.commit()
     await db.refresh(call)
-    return call
+
+    jitsi_jwt = generate_jitsi_jwt(
+        user_id=user.user_id,
+        username=user.username,
+        room_name=call.room_name,
+        is_moderator=True,
+    )
+    jitsi_url = build_jitsi_room_url(call.room_name, jitsi_jwt)
+
+    return call, jitsi_jwt, jitsi_url
 
 
 async def join_call(

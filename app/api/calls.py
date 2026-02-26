@@ -17,7 +17,7 @@ from app.schemas.calls import (
 )
 from app.services import call_service
 
-router = APIRouter(prefix="/api/v1/calls", tags=["calls"])
+router = APIRouter(prefix="/api/v1/calls/rooms", tags=["calls"])
 
 
 async def _build_call_response(db, call) -> CallResponse:
@@ -124,7 +124,7 @@ async def end_call(
     return await _build_call_response(db, call)
 
 
-@router.post("/{call_id}/kick/{user_id}", status_code=204)
+@router.delete("/{call_id}/participants/{user_id}/kick", status_code=204)
 async def kick_participant(
     call_id: uuid.UUID,
     user_id: uuid.UUID,

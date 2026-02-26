@@ -59,12 +59,36 @@ async def create_call(
     current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    call, participant, jitsi_domain, jitsi_room, jitsi_jwt, jitsi_url = (
-        await call_service.create_call(
-            db, current_user, body.room_name, body.max_participants
-        )
+    from fastapi import HTTPException
+    logger.info(
+        "[create_call] START user=%s user_id=%s room_name=%r max_participants=%s",
+        current_user.username, current_user.user_id, body.room_name, body.max_participants,
     )
-    call_response = await _build_call_response(db, call)
+    try:
+        call, participant, jitsi_domain, jitsi_room, jitsi_jwt, jitsi_url = (
+            await call_service.create_call(
+                db, current_user, body.room_name, body.max_participants
+            )
+        )
+        logger.info(
+            "[create_call] OK call_id=%s jitsi_domain=%s jitsi_room=%s",
+            call.id, jitsi_domain, jitsi_room,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception(
+            "[create_call] FAILED user=%s room_name=%r error=%s",
+            current_user.username, body.room_name, exc,
+        )
+        raise HTTPException(status_code=500, detail=f"Internal error while creating call: {exc}") from exc
+
+    try:
+        call_response = await _build_call_response(db, call)
+    except Exception as exc:
+        logger.exception("[create_call] _build_call_response FAILED call_id=%s error=%s", call.id, exc)
+        raise HTTPException(status_code=500, detail=f"Error building response: {exc}") from exc
+
     return CreateCallResponse(
         call=call_response,
         participant=_participant_response(participant),
@@ -80,9 +104,18 @@ async def list_active_calls(
     current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    calls = await call_service.get_active_calls(db)
-    responses = [await _build_call_response(db, c) for c in calls]
-    return CallListResponse(calls=responses, total=len(responses))
+    from fastapi import HTTPException
+    logger.info("[list_active_calls] START user=%s", current_user.username)
+    try:
+        calls = await call_service.get_active_calls(db)
+        logger.info("[list_active_calls] got %d calls from DB", len(calls))
+        responses = [await _build_call_response(db, c) for c in calls]
+        return CallListResponse(calls=responses, total=len(responses))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("[list_active_calls] FAILED user=%s error=%s", current_user.username, exc)
+        raise HTTPException(status_code=500, detail=f"Internal error listing calls: {exc}") from exc
 
 
 @router.get("/{call_id}", response_model=CallResponse)

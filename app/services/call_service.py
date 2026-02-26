@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import datetime, timezone
 
@@ -17,6 +18,8 @@ from app.models.call_participant import CallParticipant
 from app.schemas.auth import CurrentUser
 from app.services.realtime import realtime_service
 
+logger = logging.getLogger(__name__)
+
 
 def _generate_room_name() -> str:
     short_id = uuid.uuid4().hex[:12]
@@ -35,36 +38,59 @@ async def create_call(
 ) -> tuple[Call, CallParticipant, str, str, str, str]:
     """Returns (call, participant, jitsi_domain, jitsi_room, jitsi_jwt, jitsi_url)"""
     display_name = room_name.strip() if room_name else _generate_room_name()
-    # Ensure uniqueness by appending short UUID if user-provided
     jitsi_room_id = _generate_room_name()
-
-    call = Call(
-        room_name=display_name,
-        jitsi_room_id=jitsi_room_id,
-        created_by=user.user_id,
-        creator_username=user.username,
-        max_participants=max_participants,
+    logger.info(
+        "[create_call_svc] display_name=%r jitsi_room_id=%s user_id=%s",
+        display_name, jitsi_room_id, user.user_id,
     )
-    db.add(call)
-    await db.flush()
 
-    participant = CallParticipant(
-        call_id=call.id,
-        user_id=user.user_id,
-        username=user.username,
-        role="moderator",
-    )
-    db.add(participant)
-    await db.commit()
-    await db.refresh(call)
-    await db.refresh(participant)
+    try:
+        call = Call(
+            room_name=display_name,
+            jitsi_room_id=jitsi_room_id,
+            created_by=user.user_id,
+            creator_username=user.username,
+            max_participants=max_participants,
+        )
+        db.add(call)
+        await db.flush()
+        logger.info("[create_call_svc] Call flushed call_id=%s", call.id)
+    except Exception as exc:
+        logger.exception("[create_call_svc] DB flush FAILED: %s", exc)
+        await db.rollback()
+        raise
 
-    domain, jitsi_room, jwt_token, room_url = get_jitsi_meeting_info(
-        user_id=user.user_id,
-        username=user.username,
-        room_name=jitsi_room_id,
-        is_moderator=True,
-    )
+    try:
+        participant = CallParticipant(
+            call_id=call.id,
+            user_id=user.user_id,
+            username=user.username,
+            role="moderator",
+        )
+        db.add(participant)
+        await db.commit()
+        await db.refresh(call)
+        await db.refresh(participant)
+        logger.info("[create_call_svc] DB commit OK participant_id=%s", participant.id)
+    except Exception as exc:
+        logger.exception("[create_call_svc] DB commit FAILED: %s", exc)
+        await db.rollback()
+        raise
+
+    try:
+        domain, jitsi_room, jwt_token, room_url = get_jitsi_meeting_info(
+            user_id=user.user_id,
+            username=user.username,
+            room_name=jitsi_room_id,
+            is_moderator=True,
+        )
+        logger.info(
+            "[create_call_svc] Jitsi info OK domain=%s room=%s has_jwt=%s",
+            domain, jitsi_room, bool(jwt_token),
+        )
+    except Exception as exc:
+        logger.exception("[create_call_svc] get_jitsi_meeting_info FAILED: %s", exc)
+        raise
 
     return call, participant, domain, jitsi_room, jwt_token, room_url
 

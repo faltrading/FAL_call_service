@@ -77,28 +77,31 @@ async def join_call(
     """Returns (call, participant, jitsi_domain, jitsi_room, jitsi_jwt, jitsi_url)"""
     call = await _get_active_call(db, call_id)
 
-    existing = await db.execute(
+    existing_result = await db.execute(
         select(CallParticipant).where(
             CallParticipant.call_id == call_id,
             CallParticipant.user_id == user.user_id,
             CallParticipant.left_at.is_(None),
         )
     )
-    if existing.scalar_one_or_none() is not None:
-        raise AlreadyInCallError()
+    existing_participant = existing_result.scalar_one_or_none()
 
     is_mod = _is_moderator(call, user)
     role = "moderator" if is_mod else "participant"
 
-    participant = CallParticipant(
-        call_id=call.id,
-        user_id=user.user_id,
-        username=user.username,
-        role=role,
-    )
-    db.add(participant)
-    await db.commit()
-    await db.refresh(participant)
+    if existing_participant is not None:
+        # Already in call — rejoin (return existing participation)
+        participant = existing_participant
+    else:
+        participant = CallParticipant(
+            call_id=call.id,
+            user_id=user.user_id,
+            username=user.username,
+            role=role,
+        )
+        db.add(participant)
+        await db.commit()
+        await db.refresh(participant)
 
     jitsi_room_id = call.jitsi_room_id or call.room_name
     domain, jitsi_room, jwt_token, room_url = get_jitsi_meeting_info(

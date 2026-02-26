@@ -93,15 +93,29 @@ async def join_call(
         # Already in call — rejoin (return existing participation)
         participant = existing_participant
     else:
-        participant = CallParticipant(
-            call_id=call.id,
-            user_id=user.user_id,
-            username=user.username,
-            role=role,
-        )
-        db.add(participant)
-        await db.commit()
-        await db.refresh(participant)
+        try:
+            participant = CallParticipant(
+                call_id=call.id,
+                user_id=user.user_id,
+                username=user.username,
+                role=role,
+            )
+            db.add(participant)
+            await db.commit()
+            await db.refresh(participant)
+        except Exception:
+            # Unique constraint race: another concurrent join may have inserted first
+            await db.rollback()
+            retry = await db.execute(
+                select(CallParticipant).where(
+                    CallParticipant.call_id == call_id,
+                    CallParticipant.user_id == user.user_id,
+                    CallParticipant.left_at.is_(None),
+                )
+            )
+            participant = retry.scalar_one_or_none()
+            if participant is None:
+                raise
 
     jitsi_room_id = call.jitsi_room_id or call.room_name
     domain, jitsi_room, jwt_token, room_url = get_jitsi_meeting_info(

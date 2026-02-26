@@ -1,3 +1,4 @@
+import logging
 import uuid
 
 from fastapi import APIRouter, Depends
@@ -16,6 +17,8 @@ from app.schemas.calls import (
     KickRequest,
 )
 from app.services import call_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/calls/rooms", tags=["calls"])
 
@@ -108,9 +111,18 @@ async def join_call(
     current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    call, participant, jitsi_domain, jitsi_room, jitsi_jwt, jitsi_url = (
-        await call_service.join_call(db, call_id, current_user)
-    )
+    try:
+        call, participant, jitsi_domain, jitsi_room, jitsi_jwt, jitsi_url = (
+            await call_service.join_call(db, call_id, current_user)
+        )
+    except Exception as exc:
+        # Re-raise known HTTP exceptions; log and wrap anything else
+        from fastapi import HTTPException
+        if isinstance(exc, HTTPException):
+            raise
+        logger.exception("Unhandled error in join_call for call_id=%s user=%s", call_id, current_user.username)
+        raise HTTPException(status_code=500, detail="Internal error while joining call") from exc
+
     call_response = await _build_call_response(db, call)
     return JoinCallResponse(
         call=call_response,

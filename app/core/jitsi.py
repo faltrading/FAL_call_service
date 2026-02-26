@@ -91,20 +91,27 @@ def get_jitsi_meeting_info(
     """
     Returns (domain, jitsi_room, jwt_token, room_url).
 
-    If JaaS credentials are configured, uses JaaS with RS256 JWT.
+    If JaaS credentials are configured AND the RSA key is valid, uses JaaS with RS256 JWT.
     Otherwise falls back to the free public meet.jit.si (no JWT needed).
     """
     if _has_jaas_config():
-        domain = settings.jitsi_domain
-        jwt_token = generate_jitsi_jwt(user_id, username, room_name, is_moderator)
-        jitsi_room = room_name
-        room_url = build_jitsi_room_url(room_name, jwt_token)
-        logger.info(f"JaaS mode: domain={domain}, room={jitsi_room}")
-    else:
-        domain = settings.jitsi_domain if settings.JITSI_URL else DEFAULT_JITSI_DOMAIN
-        jwt_token = ""
-        jitsi_room = room_name
-        room_url = f"https://{domain}/{room_name}"
-        logger.info(f"Free Jitsi mode: domain={domain}, room={jitsi_room}")
+        try:
+            jwt_token = generate_jitsi_jwt(user_id, username, room_name, is_moderator)
+            domain = settings.jitsi_domain
+            jitsi_room = room_name
+            room_url = build_jitsi_room_url(room_name, jwt_token)
+            logger.info("JaaS mode: domain=%s room=%s", domain, jitsi_room)
+            return domain, jitsi_room, jwt_token, room_url
+        except Exception as exc:
+            logger.warning(
+                "JaaS JWT generation failed (%s: %s) — falling back to free meet.jit.si",
+                type(exc).__name__, exc,
+            )
 
+    # Free public Jitsi fallback
+    domain = DEFAULT_JITSI_DOMAIN
+    jwt_token = ""
+    jitsi_room = room_name
+    room_url = f"https://{domain}/{room_name}"
+    logger.info("Free Jitsi mode: domain=%s room=%s", domain, jitsi_room)
     return domain, jitsi_room, jwt_token, room_url

@@ -11,7 +11,7 @@ from app.core.exceptions import (
     InsufficientPermissionsError,
     NotAParticipantError,
 )
-from app.core.jitsi import build_jitsi_room_url, generate_jitsi_jwt
+from app.core.jitsi import get_jitsi_meeting_info
 from app.models.call import Call
 from app.models.call_participant import CallParticipant
 from app.schemas.auth import CurrentUser
@@ -30,10 +30,17 @@ def _is_moderator(call: Call, user: CurrentUser) -> bool:
 async def create_call(
     db: AsyncSession,
     user: CurrentUser,
+    room_name: str | None = None,
     max_participants: int | None = None,
-) -> tuple[Call, str, str]:
+) -> tuple[Call, CallParticipant, str, str, str, str]:
+    """Returns (call, participant, jitsi_domain, jitsi_room, jitsi_jwt, jitsi_url)"""
+    display_name = room_name.strip() if room_name else _generate_room_name()
+    # Ensure uniqueness by appending short UUID if user-provided
+    jitsi_room_id = _generate_room_name()
+
     call = Call(
-        room_name=_generate_room_name(),
+        room_name=display_name,
+        jitsi_room_id=jitsi_room_id,
         created_by=user.user_id,
         creator_username=user.username,
         max_participants=max_participants,
@@ -50,23 +57,24 @@ async def create_call(
     db.add(participant)
     await db.commit()
     await db.refresh(call)
+    await db.refresh(participant)
 
-    jitsi_jwt = generate_jitsi_jwt(
+    domain, jitsi_room, jwt_token, room_url = get_jitsi_meeting_info(
         user_id=user.user_id,
         username=user.username,
-        room_name=call.room_name,
+        room_name=jitsi_room_id,
         is_moderator=True,
     )
-    jitsi_url = build_jitsi_room_url(call.room_name, jitsi_jwt)
 
-    return call, jitsi_jwt, jitsi_url
+    return call, participant, domain, jitsi_room, jwt_token, room_url
 
 
 async def join_call(
     db: AsyncSession,
     call_id: uuid.UUID,
     user: CurrentUser,
-) -> tuple[Call, str, str]:
+) -> tuple[Call, CallParticipant, str, str, str, str]:
+    """Returns (call, participant, jitsi_domain, jitsi_room, jitsi_jwt, jitsi_url)"""
     call = await _get_active_call(db, call_id)
 
     existing = await db.execute(
@@ -90,21 +98,22 @@ async def join_call(
     )
     db.add(participant)
     await db.commit()
+    await db.refresh(participant)
 
-    jitsi_jwt = generate_jitsi_jwt(
+    jitsi_room_id = call.jitsi_room_id or call.room_name
+    domain, jitsi_room, jwt_token, room_url = get_jitsi_meeting_info(
         user_id=user.user_id,
         username=user.username,
-        room_name=call.room_name,
+        room_name=jitsi_room_id,
         is_moderator=is_mod,
     )
-    jitsi_url = build_jitsi_room_url(call.room_name, jitsi_jwt)
 
     await realtime_service.broadcast_user_joined_call(
         call.id,
         {"user_id": user.user_id, "username": user.username, "role": role, "call_id": call.id},
     )
 
-    return call, jitsi_jwt, jitsi_url
+    return call, participant, domain, jitsi_room, jwt_token, room_url
 
 
 async def leave_call(

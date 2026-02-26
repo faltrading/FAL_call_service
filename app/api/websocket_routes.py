@@ -154,23 +154,66 @@ async def websocket_call_chat(websocket: WebSocket, call_id: uuid.UUID):
                 continue
 
             action = data.get("action")
+            msg_type = data.get("type")
 
-            if action == "send_message":
+            # Support frontend format: { type: "chat_message", payload: { text: "..." } }
+            if msg_type == "chat_message":
+                payload = data.get("payload", {})
+                content = payload.get("text", "").strip()
+                if not content:
+                    continue
+
+                msg_out = {
+                    "type": "chat_message",
+                    "payload": {
+                        "username": user.username,
+                        "text": content,
+                    },
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+                payload_str = json.dumps(msg_out, default=str)
+                # Broadcast to all EXCEPT sender (frontend adds message optimistically)
+                ck2 = _call_key(call_id)
+                if ck2 in active_connections:
+                    disconnected = []
+                    for uk2, ws2 in active_connections[ck2].items():
+                        if uk2 == _user_key(user.user_id):
+                            continue
+                        try:
+                            await ws2.send_text(payload_str)
+                        except Exception:
+                            disconnected.append(uk2)
+                    for uk2 in disconnected:
+                        active_connections[ck2].pop(uk2, None)
+
+            elif action == "send_message":
                 content = data.get("content", "").strip()
                 if not content:
                     continue
 
                 msg_data = {
-                    "id": str(uuid.uuid4()),
-                    "call_id": str(call_id),
-                    "sender_id": str(user.user_id),
-                    "sender_username": user.username,
-                    "content": content,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "type": "chat_message",
+                    "payload": {
+                        "username": user.username,
+                        "text": content,
+                    },
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
-                await _broadcast_to_call_ws(call_id, "new_message", msg_data)
+                payload_str = json.dumps(msg_data, default=str)
+                ck2 = _call_key(call_id)
+                if ck2 in active_connections:
+                    disconnected = []
+                    for uk2, ws2 in active_connections[ck2].items():
+                        if uk2 == _user_key(user.user_id):
+                            continue
+                        try:
+                            await ws2.send_text(payload_str)
+                        except Exception:
+                            disconnected.append(uk2)
+                    for uk2 in disconnected:
+                        active_connections[ck2].pop(uk2, None)
 
-            elif action == "typing":
+            elif action == "typing" or msg_type == "typing":
                 await _broadcast_to_call_ws(
                     call_id,
                     "typing",

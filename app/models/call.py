@@ -12,7 +12,8 @@ class Call(Base):
     __tablename__ = "calls"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    room_name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    room_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    jitsi_room_id: Mapped[str] = mapped_column(String(255), default="", server_default="")
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     creator_username: Mapped[str] = mapped_column(String(255), default="")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

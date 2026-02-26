@@ -20,6 +20,18 @@ from app.services import call_service
 router = APIRouter(prefix="/api/v1/calls/rooms", tags=["calls"])
 
 
+def _participant_response(p) -> CallParticipantResponse:
+    return CallParticipantResponse(
+        id=p.id,
+        call_id=p.call_id,
+        user_id=p.user_id,
+        username=p.username,
+        role=p.role,
+        joined_at=p.joined_at,
+        left_at=p.left_at,
+    )
+
+
 async def _build_call_response(db, call) -> CallResponse:
     count = await call_service.get_active_participant_count(db, call.id)
     return CallResponse(
@@ -28,8 +40,10 @@ async def _build_call_response(db, call) -> CallResponse:
         created_by=call.created_by,
         creator_username=call.creator_username,
         is_active=call.is_active,
+        status="active" if call.is_active else "ended",
         max_participants=call.max_participants,
         participant_count=count,
+        started_at=call.created_at,
         created_at=call.created_at,
         updated_at=call.updated_at,
         ended_at=call.ended_at,
@@ -42,11 +56,18 @@ async def create_call(
     current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    call, jitsi_jwt, jitsi_url = await call_service.create_call(db, current_user, body.max_participants)
+    call, participant, jitsi_domain, jitsi_room, jitsi_jwt, jitsi_url = (
+        await call_service.create_call(
+            db, current_user, body.room_name, body.max_participants
+        )
+    )
     call_response = await _build_call_response(db, call)
     return CreateCallResponse(
         call=call_response,
+        participant=_participant_response(participant),
         jitsi_jwt=jitsi_jwt,
+        jitsi_room=jitsi_room,
+        jitsi_domain=jitsi_domain,
         jitsi_room_url=jitsi_url,
     )
 
@@ -78,16 +99,7 @@ async def list_participants(
     db: AsyncSession = Depends(get_db),
 ):
     participants = await call_service.get_call_participants(db, call_id)
-    return [
-        CallParticipantResponse(
-            id=p.id,
-            user_id=p.user_id,
-            username=p.username,
-            role=p.role,
-            joined_at=p.joined_at,
-        )
-        for p in participants
-    ]
+    return [_participant_response(p) for p in participants]
 
 
 @router.post("/{call_id}/join", response_model=JoinCallResponse)
@@ -96,11 +108,16 @@ async def join_call(
     current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    call, jitsi_jwt, jitsi_url = await call_service.join_call(db, call_id, current_user)
+    call, participant, jitsi_domain, jitsi_room, jitsi_jwt, jitsi_url = (
+        await call_service.join_call(db, call_id, current_user)
+    )
     call_response = await _build_call_response(db, call)
     return JoinCallResponse(
         call=call_response,
+        participant=_participant_response(participant),
         jitsi_jwt=jitsi_jwt,
+        jitsi_room=jitsi_room,
+        jitsi_domain=jitsi_domain,
         jitsi_room_url=jitsi_url,
     )
 

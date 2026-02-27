@@ -186,6 +186,16 @@ async def end_call(
     return await _build_call_response(db, call)
 
 
+@router.delete("/{call_id}", status_code=204)
+async def delete_call(
+    call_id: uuid.UUID,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Permanently delete a call. Only the creator or an admin can do this."""
+    await call_service.delete_call(db, call_id, current_user)
+
+
 @router.delete("/{call_id}/participants/{user_id}/kick", status_code=204)
 async def kick_participant(
     call_id: uuid.UUID,

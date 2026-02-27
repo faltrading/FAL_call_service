@@ -62,5 +62,8 @@ class RealtimeService:
     async def broadcast_user_kicked(self, call_id: uuid.UUID, user_data: dict):
         await self.broadcast_to_call(call_id, "user_kicked", user_data)
 
+    async def broadcast_call_deleted(self, call_id: uuid.UUID, call_data: dict):
+        await self.broadcast_to_call(call_id, "call_deleted", call_data)
+
 
 realtime_service = RealtimeService()

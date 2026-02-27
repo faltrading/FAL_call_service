@@ -258,6 +258,41 @@ async def kick_participant(
     )
 
 
+async def delete_call(
+    db: AsyncSession,
+    call_id: uuid.UUID,
+    user: CurrentUser,
+) -> None:
+    """Permanently delete a call. Only the creator or an admin can do this."""
+    call = await get_call(db, call_id)
+
+    if user.user_id != call.created_by and not user.is_admin:
+        raise InsufficientPermissionsError()
+
+    # If still active, end it first
+    if call.is_active:
+        now = datetime.now(timezone.utc)
+        call.is_active = False
+        call.ended_at = now
+        active_participants = await db.execute(
+            select(CallParticipant).where(
+                CallParticipant.call_id == call_id,
+                CallParticipant.left_at.is_(None),
+            )
+        )
+        for p in active_participants.scalars().all():
+            p.left_at = now
+        await db.flush()
+
+    await db.delete(call)
+    await db.commit()
+
+    await realtime_service.broadcast_call_deleted(
+        call_id,
+        {"call_id": call_id, "deleted_by": user.username},
+    )
+
+
 async def get_call(db: AsyncSession, call_id: uuid.UUID) -> Call:
     result = await db.execute(select(Call).where(Call.id == call_id))
     call = result.scalar_one_or_none()

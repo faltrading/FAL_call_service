@@ -17,6 +17,7 @@ from app.models.call import Call
 from app.models.call_participant import CallParticipant
 from app.schemas.auth import CurrentUser
 from app.services.realtime import realtime_service
+from app.services import notification_service
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,17 @@ async def create_call(
     except Exception as exc:
         logger.exception("[create_call_svc] get_jitsi_meeting_info FAILED: %s", exc)
         raise
+
+    # Fire-and-forget push notification (never blocks the response)
+    try:
+        await notification_service.notify_call_created(
+            call_id=str(call.id),
+            room_name=display_name,
+            creator_id=str(user.user_id),
+            creator_username=user.username,
+        )
+    except Exception:
+        pass  # notification failure must never affect call creation
 
     return call, participant, domain, jitsi_room, jwt_token, room_url
 
